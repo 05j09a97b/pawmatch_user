@@ -1,32 +1,54 @@
 const express = require('express');
-const bodyParser = require('body-parser');
-const mongoose = require('mongoose');
-
-require('dotenv').config({path: '../config.env'})
+const { PrismaClient } = require('../prisma/generated/client1');
+require('dotenv').config({ path: '../.env' });
 
 const app = express();
-app.use(bodyParser.json());
+const prisma = new PrismaClient();
 
-console.log('MONGODB_URI:', process.env.MONGODB_URI);
+app.use(express.json());
+
+console.log('DATABASE_URL:', process.env.DATABASE_URL);
 console.log('PORT:', process.env.PORT);
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('Could not connect to MongoDB', err));
+// Connect to PostgreSQL using Prisma
+async function connectToDatabase() {
+  try {
+    await prisma.$connect();
+    console.log('Connected to PostgreSQL');
+  } catch (err) {
+    console.error('Could not connect to PostgreSQL', err);
+    process.exit(1);
+  }
+}
 
-app.use(bodyParser.json());
-app.use(express.json());
+connectToDatabase();
 
 // Auth routes
 const authRoutes = require('./auth');
 app.use('/auth', authRoutes);
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send('Something broke!');
+});
 
-const port = process.env.PORT ;
-app.listen(port, () => {
+// 404 handler
+app.use((req, res, next) => {
+  res.status(404).send("Sorry, that route doesn't exist.");
+});
+
+const port = process.env.PORT || 3000;
+const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+  await prisma.$disconnect();
+  process.exit(0);
 });
